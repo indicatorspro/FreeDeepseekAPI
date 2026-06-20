@@ -42,7 +42,7 @@ function printBanner() {
 ██      ██   ██ ██      ██      ██   ██ ██      ██      ██      ██  ██
 ██      ██   ██ ███████ ███████ ██████  ███████ ███████ ███████ ██   ██
 
-   FreeDeepseekAPI — API-прокси для DeepSeek Web Chat
+   FreeDeepseekAPI — API proxy for DeepSeek Web Chat
    ${formatWatermark()}
 `);
 }
@@ -248,30 +248,30 @@ async function solvePOW(challenge, config = DS_CONFIG) {
 }
 
 const MODEL_CONFIGS = {
-    // DeepSeek Web real model_type: default / UI name: "Быстрый".
+    // DeepSeek Web real model_type: default / UI name: "Default".
     // Public model family: DeepSeek-V3.2-Exp chat mode (fast, no visible reasoning).
     'deepseek-chat': {
         model_type: 'default', thinking_enabled: false, search_enabled: false,
-        real_model: 'DeepSeek-V4-Flash non-thinking (DeepSeek Web “Быстрый” / default)',
+        real_model: 'DeepSeek-V4-Flash non-thinking (DeepSeek Web “Default” / default)',
         capabilities: { reasoning: false, web_search: false, files: true },
         supported: true,
     },
     'deepseek-v3': {
         model_type: 'default', thinking_enabled: false, search_enabled: false,
-        real_model: 'DeepSeek-V4-Flash non-thinking (DeepSeek Web “Быстрый” / default)',
+        real_model: 'DeepSeek-V4-Flash non-thinking (DeepSeek Web “Default” / default)',
         capabilities: { reasoning: false, web_search: false, files: true },
         supported: true,
     },
     'deepseek-default': {
         model_type: 'default', thinking_enabled: false, search_enabled: false,
-        real_model: 'DeepSeek-V4-Flash non-thinking (DeepSeek Web “Быстрый” / default)',
+        real_model: 'DeepSeek-V4-Flash non-thinking (DeepSeek Web “Default” / default)',
         capabilities: { reasoning: false, web_search: false, files: true },
         supported: true,
     },
     // Same DeepSeek Web default model, but with thinking_enabled=true. UI exposes it as thinking/reasoning mode.
     'deepseek-reasoner': {
         model_type: 'default', thinking_enabled: true, search_enabled: false,
-        real_model: 'DeepSeek-V4-Flash thinking mode (DeepSeek Web “Быстрый” + thinking_enabled)',
+        real_model: 'DeepSeek-V4-Flash thinking mode (DeepSeek Web “Default” + thinking_enabled)',
         capabilities: { reasoning: true, web_search: false, files: true },
         supported: true,
     },
@@ -283,13 +283,13 @@ const MODEL_CONFIGS = {
     },
     'deepseek-chat-search': {
         model_type: 'default', thinking_enabled: false, search_enabled: true,
-        real_model: 'DeepSeek-V4-Flash non-thinking (DeepSeek Web “Быстрый” / default) + web search',
+        real_model: 'DeepSeek-V4-Flash non-thinking (DeepSeek Web “Default” / default) + web search',
         capabilities: { reasoning: false, web_search: true, files: true },
         supported: true,
     },
     'deepseek-default-search': {
         model_type: 'default', thinking_enabled: false, search_enabled: true,
-        real_model: 'DeepSeek-V4-Flash non-thinking (DeepSeek Web “Быстрый” / default) + web search',
+        real_model: 'DeepSeek-V4-Flash non-thinking (DeepSeek Web “Default” / default) + web search',
         capabilities: { reasoning: false, web_search: true, files: true },
         supported: true,
     },
@@ -305,29 +305,29 @@ const MODEL_CONFIGS = {
         capabilities: { reasoning: true, web_search: true, files: true },
         supported: true,
     },
-    // DeepSeek Web UI name: “Эксперт”. Requires current web client headers (x-client-version=2.0.0).
+    // DeepSeek Web UI name: “Expert”. Requires current web client headers (x-client-version=2.0.0).
     'deepseek-expert': {
         model_type: 'expert', thinking_enabled: false, search_enabled: false,
-        real_model: 'DeepSeek Web “Эксперт” (limited resources)',
+        real_model: 'DeepSeek Web “Expert” (limited resources)',
         capabilities: { reasoning: false, web_search: false, files: false },
         supported: true,
     },
     'deepseek-v4-pro': {
         model_type: 'expert', thinking_enabled: true, search_enabled: false,
-        real_model: 'DeepSeek Web “Эксперт” + thinking mode (exposed as deepseek-v4-pro alias)',
+        real_model: 'DeepSeek Web “Expert” + thinking mode (exposed as deepseek-v4-pro alias)',
         capabilities: { reasoning: true, web_search: false, files: false },
         supported: true,
     },
     'deepseek-expert-search': {
         model_type: 'expert', thinking_enabled: false, search_enabled: true,
-        real_model: 'DeepSeek Web “Эксперт” + search requested, but Expert has search_feature=null in remote config',
+        real_model: 'DeepSeek Web “Expert” + search requested, but Expert has search_feature=null in remote config',
         capabilities: { reasoning: false, web_search: false, files: false },
         supported: false,
         unavailable_reason: 'Expert mode is rejected; remote config says search is not available for Expert.',
     },
     'deepseek-vision': {
         model_type: 'vision', thinking_enabled: false, search_enabled: false,
-        real_model: 'DeepSeek Web “Распознавание” / image understanding beta',
+        real_model: 'DeepSeek Web “Vision” / image understanding beta',
         capabilities: { reasoning: false, web_search: false, files: true, vision: true },
         supported: false,
         unavailable_reason: 'Current Web API returns: Vision is temporarily unavailable (backend_err_by_model).',
@@ -1542,11 +1542,11 @@ async function runAuthScript() {
 
 function printStatus() {
     console.log(`\n${formatWatermark()}`);
-    console.log(`Auth: ${hasAuthConfig() ? '✅ OK' : '❌ не найден deepseek-auth.json'}`);
+    console.log(`Auth: ${hasAuthConfig() ? '✅ OK' : '❌ deepseek-auth.json not found'}`);
     console.log(`Auth source: ${process.env.DEEPSEEK_AUTH_DIR || DS_CONFIG_PATH}`);
-    console.log(`Аккаунты: ${accounts.length ? accounts.map(a => `${a.id}${a.cooldownUntil > Date.now() ? ' (cooldown)' : ''}`).join(', ') : 'нет'}`);
-    console.log(`Рабочие модели: ${SUPPORTED_MODEL_IDS.join(', ')}`);
-    console.log('Нерабочие/скрытые aliases: ' + Object.keys(MODEL_CONFIGS).filter(id => !MODEL_CONFIGS[id].supported).join(', '));
+    console.log(`Accounts: ${accounts.length ? accounts.map(a => `${a.id}${a.cooldownUntil > Date.now() ? ' (cooldown)' : ''}`).join(', ') : 'none'}`);
+    console.log(`Working models: ${SUPPORTED_MODEL_IDS.join(', ')}`);
+    console.log('Non-working/hidden aliases: ' + Object.keys(MODEL_CONFIGS).filter(id => !MODEL_CONFIGS[id].supported).join(', '));
     console.log('Capabilities: GET /v1/model-capabilities');
 }
 
@@ -1557,14 +1557,14 @@ async function showStartupMenu() {
     }
     while (true) {
         printStatus();
-        console.log('\n=== Меню ===');
+        console.log('\n=== Menu ===');
         console.log(`ForgetMeAI: ${FORGETMEAI_WATERMARK}`);
-        console.log('1 - Авторизоваться / обновить DeepSeek login');
-        console.log('2 - Импортировать auth-файл / cookies');
-        console.log('3 - Показать модели и статусы');
-        console.log('4 - Запустить прокси (по умолчанию)');
-        console.log('5 - Выход');
-        let choice = await prompt('Ваш выбор (Enter = 4): ');
+        console.log('1 - Authorize / update DeepSeek login');
+        console.log('2 - Import auth file / cookies');
+        console.log('3 - Show models and statuses');
+        console.log('4 - Run proxy (default)');
+        console.log('5 - Exit');
+        let choice = await prompt('Your choice (Enter = 4): ');
         if (!choice) choice = '4';
         if (choice === '1') {
             await runAuthScript();
@@ -1573,10 +1573,10 @@ async function showStartupMenu() {
             loadDeepSeekConfig({ fatal: false });
         } else if (choice === '3') {
             console.log(JSON.stringify(ALL_MODEL_CAPABILITIES, null, 2));
-            await prompt('\nНажмите Enter, чтобы вернуться в меню...');
+            await prompt('\nPress Enter to return to menu...');
         } else if (choice === '4') {
             if (!hasAuthConfig()) {
-                console.log('Нужен deepseek-auth.json. Запустите пункт 1 или 2.');
+                console.log('Need deepseek-auth.json. Run option 1 or 2.');
                 continue;
             }
             return true;

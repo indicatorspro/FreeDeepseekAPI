@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FreeDeepseekAPI — Dashboard</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234d6bfe' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M3 8c3-3.5 6-3.5 9 0s6 3.5 9 0'/%3E%3Cpath d='M3 13c3-3.5 6-3.5 9 0s6 3.5 9 0'/%3E%3Cpath d='M3 18c3-3.5 6-3.5 9 0s6 3.5 9 0'/%3E%3C/svg%3E">
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.7/dist/purify.min.js" defer></script>
+<style>
+  :root{
+    --bg:#0d1117; --bg2:#010409; --card:#161b22; --card2:#1c2230; --elev:#21262d;
+    --border:#2a2f37; --border2:#3d444d;
+    --text:#e6edf3; --muted:#9198a1; --faint:#6e7681;
+    --accent:#4d6bfe; --accent-press:#3b54d4; --accent-deep:#2d3fa0;
+    --ok:#3fb950; --warn:#d29922; --err:#f85149;
+    --mono:ui-monospace,SFMono-Regular,Consolas,monospace;
+    --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:22px; --s6:30px;
+    --r:8px; --r2:12px;
+    --fs-xs:12px; --fs-sm:13px; --fs-md:14px; --fs-lg:16px; --fs-xl:20px; --fs-hero:28px;
+    --shadow:0 1px 2px rgba(0,0,0,.3);
+  }
+  *{box-sizing:border-box}
+  html{scrollbar-color:var(--border2) transparent}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.5;font-size:var(--fs-sm)}
+  .wrap{max-width:1080px;margin:0 auto;padding:var(--s4) var(--s5) var(--s6)}
+  a{color:var(--accent);text-decoration:none}
+  svg.ic{width:1em;height:1em;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+
+  header{position:sticky;top:0;z-index:20;background:rgba(13,17,23,.85);backdrop-filter:blur(10px);
+    display:flex;align-items:center;justify-content:space-between;gap:var(--s4);flex-wrap:wrap;padding:var(--s3) 0;border-bottom:1px solid var(--border)}
+  h1{font-size:var(--fs-xl);margin:0;display:flex;align-items:center;gap:var(--s2);font-weight:700;letter-spacing:-.01em}
+  h1 .logo{width:24px;height:24px;color:var(--accent)}
+  .status-pill{display:inline-flex;align-items:center;gap:var(--s2);padding:6px 13px;border-radius:6px;border:1px solid var(--border);background:var(--card);font-size:var(--fs-sm);font-weight:600}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--faint)}
+  .dot.on{background:var(--ok);box-shadow:0 0 0 3px rgba(63,185,80,.16)}
+  .dot.off{background:var(--err);box-shadow:0 0 0 3px rgba(248,81,73,.16)}
+
+  .tabs{display:flex;gap:2px;overflow-x:auto;margin:var(--s4) 0 var(--s5);border-bottom:1px solid var(--border)}
+  .tab{font-family:inherit;cursor:pointer;background:none;border:none;border-bottom:2px solid transparent;color:var(--muted);
+    padding:10px 15px;font-size:var(--fs-md);font-weight:600;white-space:nowrap;display:inline-flex;align-items:center;gap:7px;transition:color .15s,border-color .15s}
+  .tab svg.ic{font-size:16px}
+  .tab:hover{color:var(--text)}
+  .tab[aria-selected="true"]{color:var(--text);border-bottom-color:var(--accent)}
+  .panel{display:none}
+  .panel.active{display:block;animation:fade .18s ease}
+  @keyframes fade{from{opacity:0}to{opacity:1}}
+
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--s4)}
+  @media(max-width:760px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:var(--r2);padding:var(--s5);box-shadow:var(--shadow)}
+  .full{grid-column:1/-1}
+  .card h2{font-size:var(--fs-md);color:var(--text);margin:0 0 var(--s4);display:flex;align-items:center;gap:var(--s2);font-weight:600}
+  .card h2 svg.ic{font-size:17px;color:var(--accent)}
+  .card h2 .spacer{flex:1}
+
+  .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--s3);margin-bottom:var(--s4)}
+  @media(max-width:760px){.kpis{grid-template-columns:1fr}}
+  .kpi{background:var(--card);border:1px solid var(--border);border-radius:var(--r2);padding:var(--s4);box-shadow:var(--shadow)}
+  .kpi .num{font-size:var(--fs-hero);font-weight:700;letter-spacing:-.02em;line-height:1.1}
+  .kpi .lbl{color:var(--muted);font-size:var(--fs-xs);margin-top:2px;display:flex;align-items:center;gap:6px}
+  .kpi .num.ok{color:var(--ok)} .kpi .num.warn{color:var(--warn)} .kpi .num.err{color:var(--err)}
+
+  .row{display:flex;align-items:center;gap:var(--s2);margin-bottom:var(--s2)}
+  .row:last-child{margin-bottom:0}
+  label.k{width:92px;color:var(--muted);font-size:var(--fs-sm);flex-shrink:0}
+  .val{flex:1;font-family:var(--mono);font-size:var(--fs-sm);background:var(--elev);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;overflow:auto;white-space:nowrap;color:var(--text)}
+
+  button{font-family:inherit;cursor:pointer;border-radius:6px;border:1px solid var(--border2);background:var(--elev);color:var(--text);padding:8px 12px;font-size:var(--fs-sm);font-weight:500;display:inline-flex;align-items:center;gap:6px;transition:background .15s,border-color .15s,color .15s}
+  button:hover{border-color:var(--accent);color:var(--accent)}
+  button:active{transform:translateY(1px)}
+  button:disabled{opacity:.4;cursor:default;transform:none}
+  button.primary{background:var(--accent-press);border-color:var(--accent-deep);color:#fff;font-weight:600}
+  button.primary:hover{background:var(--accent);color:#fff}
+  button.danger{background:var(--err);border-color:var(--err);color:#fff;font-weight:600}
+  button.danger:hover{background:#ff7b72;border-color:#ff7b72;color:#fff}
+  button.sm{padding:5px 9px;font-size:var(--fs-xs)}
+  button svg.ic{font-size:15px}
+  button.toggle.on{background:rgba(77,107,254,.16);border-color:var(--accent);color:var(--accent)}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+  .tab:focus-visible{outline:2px solid var(--accent);outline-offset:-3px;border-radius:0}
+
+  .hint{color:var(--muted);font-size:var(--fs-xs);margin-top:var(--s3);line-height:1.55}
+  .hint code{font-family:var(--mono);background:var(--bg2);padding:1px 5px;border-radius:4px;color:var(--accent)}
+  .onboard{background:rgba(77,107,254,.07);border:1px solid var(--accent-deep);border-radius:var(--r);padding:var(--s4);margin-bottom:var(--s3);line-height:1.6}
+  .onboard b{color:var(--text)}
+
+  textarea,input[type=text]{width:100%;font-family:inherit;font-size:var(--fs-md);background:var(--elev);border:1px solid var(--border2);border-radius:6px;padding:9px 11px;color:var(--text);resize:vertical}
+  textarea:focus,input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(77,107,254,.16)}
+  select{font-family:inherit;font-size:var(--fs-sm);background:var(--elev);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;color:var(--text);cursor:pointer}
+
+  .models{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:6px;max-height:280px;overflow:auto;padding-right:4px}
+  .chip{font-family:var(--mono);font-size:var(--fs-xs);background:var(--card2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;cursor:pointer;transition:.12s;display:flex;align-items:center;gap:6px;color:var(--text)}
+  .chip:hover{border-color:var(--accent)}
+
+  .spacer{flex:1}
+  .acc{display:flex;align-items:center;gap:var(--s3);padding:10px 12px;background:var(--card2);border:1px solid var(--border);border-left:3px solid var(--faint);border-radius:0 var(--r) var(--r) 0;margin-bottom:4px}
+  .acc .status-bar{width:4px;height:28px;border-radius:2px;flex-shrink:0}
+  .acc .status-bar.ready{background:var(--ok)}
+  .acc .status-bar.cooldown{background:var(--warn)}
+  .acc .status-bar.error{background:var(--err)}
+  .acc .info{flex:1;min-width:0}
+  .acc .info .id{font-family:var(--mono);font-size:var(--fs-xs);color:var(--faint)}
+  .acc .info .label{font-weight:500}
+  .acc .info .detail{font-size:var(--fs-xs);color:var(--muted)}
+  .acc .badge{font-size:var(--fs-xs);padding:2px 8px;border-radius:4px;background:var(--elev);border:1px solid var(--border2)}
+  .acc .badge.ready{background:rgba(63,185,80,.12);border-color:var(--ok);color:var(--ok)}
+  .acc .badge.cooldown{background:rgba(210,153,34,.12);border-color:var(--warn);color:var(--warn)}
+  .acc .badge.error{background:rgba(248,81,73,.12);border-color:var(--err);color:var(--err)}
+
+  .toast{position:fixed;bottom:var(--s5);right:var(--s5);background:var(--card);border:1px solid var(--border);border-radius:var(--r2);padding:var(--s3) var(--s4);box-shadow:0 8px 32px rgba(0,0,0,.5);max-width:400px;font-size:var(--fs-sm);z-index:50;animation:fade .2s ease}
+  .toast.ok{border-left:3px solid var(--ok)}
+  .toast.err{border-left:3px solid var(--err)}
+  .toast.warn{border-left:3px solid var(--warn)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>
+      <svg class="logo" viewBox="0 0 24 24"><path d="M3 8c3-3.5 6-3.5 9 0s6 3.5 9 0"/><path d="M3 13c3-3.5 6-3.5 9 0s6 3.5 9 0"/><path d="M3 18c3-3.5 6-3.5 9 0s6 3.5 9 0"/></svg>
+      FreeDeepseekAPI
+      <span style="font-size:14px;font-weight:400;color:var(--muted);margin-left:8px;">Dashboard</span>
+    </h1>
+    <div class="status-pill">
+      <span class="dot" id="statusDot"></span>
+      <span id="statusText">Loading...</span>
+    </div>
+  </header>
+
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" aria-selected="true" data-tab="accounts">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      Accounts
+    </button>
+    <button class="tab" role="tab" aria-selected="false" data-tab="import">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      Import
+    </button>
+    <button class="tab" role="tab" aria-selected="false" data-tab="models">
+      <svg class="ic" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      Models
+    </button>
+  </div>
+
+  <div class="panel active" id="panel-accounts" role="tabpanel">
+    <div class="kpis">
+      <div class="kpi"><div class="num" id="kpiTotal">0</div><div class="lbl">Total Accounts</div></div>
+      <div class="kpi"><div class="num ok" id="kpiReady">0</div><div class="lbl">Ready</div></div>
+      <div class="kpi"><div class="num" id="kpiCooldown">0</div><div class="lbl">Cooldown</div></div>
+    </div>
+    <div id="accountsList"></div>
+  </div>
+
+  <div class="panel" id="panel-import" role="tabpanel">
+    <div class="card">
+      <h2>Import from cURL / HAR</h2>
+      <p class="hint">Paste the cURL command or HAR JSON from DevTools → Network → Copy as cURL / Save all as HAR.</p>
+      <textarea id="importInput" rows="6" placeholder="Paste cURL or HAR here..."></textarea>
+      <div style="display:flex;gap:12px;margin-top:12px;flex-wrap:wrap;">
+        <button class="primary" id="btnImportCurl">Import from cURL</button>
+        <button class="primary" id="btnImportHar">Import from HAR</button>
+        <button id="btnImportClear">Clear</button>
+      </div>
+      <div id="importResult" style="margin-top:12px;"></div>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-models" role="tabpanel">
+    <div class="card">
+      <h2>Available Models</h2>
+      <div class="models" id="modelsList"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const API_BASE = 'http://localhost:9655';
+
+let currentAccounts = [];
+let currentModels = [];
+
+async function api(path, opts = {}) {
+  const resp = await fetch(`${API_BASE}${path}`, {
+    ...opts,
+    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+  });
+  const text = await resp.text();
+  let json;
+  try { json = JSON.parse(text); } catch { json = { error: text || 'Unknown error' }; }
+  return { ok: resp.ok, status: resp.status, json };
+}
+
+function showToast(msg, type = 'ok') {
+  const old = document.querySelector('.toast');
+  if (old) old.remove();
+  const div = document.createElement('div');
+  div.className = `toast ${type}`;
+  div.textContent = msg;
+  document.body.appendChild(div);
+  setTimeout(() => div.remove(), 4000);
+}
+
+function renderStatus(ready, accounts) {
+  const dot = $('statusDot');
+  const text = $('statusText');
+  if (ready) {
+    dot.className = 'dot on';
+    text.textContent = `${accounts} account(s) ready`;
+  } else {
+    dot.className = 'dot off';
+    text.textContent = 'No accounts';
+  }
+}
+
+function renderAccounts() {
+  const container = $('accountsList');
+  if (!currentAccounts.length) {
+    container.innerHTML = '<div class="onboard"><b>No accounts yet.</b> Import one via the <strong>Import</strong> tab, or run <code>npm run auth</code>.</div>';
+    return;
+  }
+  container.innerHTML = currentAccounts.map(a => {
+    const ready = a.ready;
+    const cooldown = a.cooldown;
+    const statusClass = ready ? 'ready' : (cooldown ? 'cooldown' : 'error');
+    const badgeText = ready ? 'Ready' : (cooldown ? `Cooldown ${a.cooldown_remaining_sec}s` : 'Error');
+    const badgeClass = ready ? 'ready' : (cooldown ? 'cooldown' : 'error');
+    return `
+      <div class="acc" data-id="${a.id}">
+        <div class="status-bar ${statusClass}"></div>
+        <div class="info">
+          <div><span class="label">${a.label || a.id}</span> <span class="id">${a.id}</span></div>
+          <div class="detail">${a.failures ? `${a.failures} failures` : 'No failures'}</div>
+        </div>
+        <span class="badge ${badgeClass}">${badgeText}</span>
+        <button class="sm danger" data-action="delete" data-id="${a.id}">Delete</button>
+        <button class="sm" data-action="check" data-id="${a.id}">Check</button>
+      </div>
+    `;
+  }).join('');
+
+  container.querySelectorAll('[data-action="delete"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.id;
+      if (!confirm(`Delete account ${id}?`)) return;
+      const r = await api(`/api/accounts/${id}`, { method: 'DELETE' });
+      if (r.ok) { showToast(`Account ${id} deleted`, 'ok'); refresh(); }
+      else showToast(`Error: ${r.json.error || r.status}`, 'err');
+    });
+  });
+
+  container.querySelectorAll('[data-action="check"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.id;
+      btn.disabled = true;
+      btn.textContent = 'Checking...';
+      const r = await api(`/api/accounts/${id}/check`, { method: 'POST' });
+      btn.disabled = false;
+      btn.textContent = 'Check';
+      if (r.ok && r.json.success) showToast(`Account ${id} is live`, 'ok');
+      else showToast(`Account ${id} failed: ${r.json.error || 'unknown'}`, 'err');
+      refresh();
+    });
+  });
+}
+
+function renderModels() {
+  const container = $('modelsList');
+  if (!currentModels.length) {
+    container.innerHTML = '<div class="onboard">No models available. Check server status.</div>';
+    return;
+  }
+  container.innerHTML = currentModels.map(m => `
+    <div class="chip">${m}</div>
+  `).join('');
+}
+
+async function refresh() {
+  try {
+    const statusR = await api('/api/auth-status');
+    if (statusR.ok && statusR.json) {
+      const s = statusR.json;
+      renderStatus(s.auth_configured, s.accounts || 0);
+      $('kpiTotal').textContent = s.accounts || 0;
+      // KPI ready/cooldown filled from accounts list
+    }
+
+    const accountsR = await api('/api/accounts');
+    if (accountsR.ok && accountsR.json) {
+      currentAccounts = accountsR.json.accounts || [];
+      const ready = currentAccounts.filter(a => a.ready).length;
+      const cooldown = currentAccounts.filter(a => a.cooldown).length;
+      $('kpiReady').textContent = ready;
+      $('kpiCooldown').textContent = cooldown;
+      renderAccounts();
+    }
+
+    const modelsR = await api('/v1/models');
+    if (modelsR.ok && modelsR.json) {
+      currentModels = modelsR.json.data || modelsR.json.models || [];
+      renderModels();
+    }
+  } catch (e) {
+    showToast(`Failed to refresh: ${e.message}`, 'err');
+  }
+}
+
+// Tabs
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', 'false'));
+    tab.setAttribute('aria-selected', 'true');
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    const target = document.getElementById(`panel-${tab.dataset.tab}`);
+    if (target) target.classList.add('active');
+  });
+});
+
+// Import handlers
+$('btnImportCurl').addEventListener('click', async () => {
+  const input = $('importInput').value.trim();
+  if (!input) { showToast('Paste cURL or HAR first', 'warn'); return; }
+  const r = await api('/api/accounts/import', {
+    method: 'POST',
+    body: JSON.stringify({ input, label: `curl_${Date.now()}` }),
+  });
+  if (r.ok) { showToast('Account imported successfully', 'ok'); $('importInput').value = ''; refresh(); }
+  else showToast(`Error: ${r.json.error || r.status}`, 'err');
+});
+
+$('btnImportHar').addEventListener('click', async () => {
+  const input = $('importInput').value.trim();
+  if (!input) { showToast('Paste cURL or HAR first', 'warn'); return; }
+  const r = await api('/api/accounts/import', {
+    method: 'POST',
+    body: JSON.stringify({ input, label: `har_${Date.now()}` }),
+  });
+  if (r.ok) { showToast('Account imported successfully', 'ok'); $('importInput').value = ''; refresh(); }
+  else showToast(`Error: ${r.json.error || r.status}`, 'err');
+});
+
+$('btnImportClear').addEventListener('click', () => {
+  $('importInput').value = '';
+  $('importResult').textContent = '';
+});
+
+// Initial load
+refresh();
+setInterval(refresh, 15000);
+</script>
+</body>
+</html>
