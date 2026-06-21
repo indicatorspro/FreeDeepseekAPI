@@ -21,14 +21,24 @@ function loadAuth() {
 }
 function status() {
   const auth = loadAuth();
+<<<<<<< Updated upstream
   console.log('\nDeepSeek аккаунт:');
   if (!auth) {
     console.log('  ❌ deepseek-auth.json не найден');
+=======
+  console.log('\nDeepSeek account:');
+  if (!auth) {
+    console.log('  ❌ deepseek-auth.json not found');
+>>>>>>> Stashed changes
   } else {
     console.log(`  ✅ auth file: ${AUTH_PATH}`);
     console.log(`  token: ${auth.token ? 'OK (' + String(auth.token).length + ' chars)' : 'MISSING'}`);
     console.log(`  cookies: ${auth.cookie ? 'OK' : 'MISSING'}`);
+<<<<<<< Updated upstream
     console.log(`  Chrome profile: ${fs.existsSync(PROFILE_DIR) ? PROFILE_DIR : 'не найден'}`);
+=======
+    console.log(`  Chrome profile: ${fs.existsSync(PROFILE_DIR) ? PROFILE_DIR : 'not found'}`);
+>>>>>>> Stashed changes
   }
 }
 function runDirectAuth() {
@@ -41,6 +51,7 @@ function runImportAuth() {
 }
 function removeLocalAuth() {
   if (fs.existsSync(AUTH_PATH)) fs.rmSync(AUTH_PATH, { force: true });
+<<<<<<< Updated upstream
   console.log('Удалён deepseek-auth.json. Chrome profile оставлен, чтобы не разлогинивать браузер без нужды.');
 }
 function printHelp() {
@@ -55,6 +66,22 @@ function printHelp() {
   console.log('  --remove    Удалить локальный deepseek-auth.json');
   console.log('  --help      Справка');
   console.log('Без опций запускается интерактивное меню.');
+=======
+  console.log('Deleted deepseek-auth.json. Chrome profile left to avoid logging out browser unnecessarily.');
+}
+function printHelp() {
+  divider();
+  console.log('FreeDeepseekAPI — DeepSeek Web login management');
+  console.log(watermark());
+  divider();
+  console.log('Опции:');
+  console.log('  --login     Open Chrome and update auth');
+  console.log('  --import    Import ready deepseek-auth.json / browser cookies');
+  console.log('  --status    Show auth status');
+  console.log('  --remove    Delete local deepseek-auth.json');
+  console.log('  --help      Справка');
+  console.log('Without options, interactive menu starts.');
+>>>>>>> Stashed changes
   divider();
 }
 async function menu() {
@@ -63,6 +90,7 @@ async function menu() {
     console.log(watermark());
     status();
     divider();
+<<<<<<< Updated upstream
     console.log('Меню:');
     console.log('1 - Авторизоваться / обновить DeepSeek login');
     console.log('2 - Импортировать auth-файл / cookies');
@@ -73,6 +101,18 @@ async function menu() {
     if (choice === '1') runDirectAuth();
     else if (choice === '2') runImportAuth();
     else if (choice === '3') { status(); await prompt('\nНажмите Enter, чтобы вернуться в меню...'); }
+=======
+    console.log('Menu:');
+    console.log('1 - Authorize / update DeepSeek login');
+    console.log('2 - Import auth file / cookies');
+    console.log('3 - Show status');
+    console.log('4 - Delete local auth file');
+    console.log('5 - Exit');
+    const choice = (await prompt('Your choice (Enter = 5): ')) || '5';
+    if (choice === '1') runDirectAuth();
+    else if (choice === '2') runImportAuth();
+    else if (choice === '3') { status(); await prompt('\nPress Enter to return to menu...'); }
+>>>>>>> Stashed changes
     else if (choice === '4') removeLocalAuth();
     else if (choice === '5') break;
   }

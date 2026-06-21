@@ -453,10 +453,17 @@ async function main() {
     await cdp.send('Network.enable');
 
     console.log(
+<<<<<<< Updated upstream
         '\n[auth] Chrome открыт. Войди в DeepSeek в ЭТОМ отдельном окне.',
     );
     console.log(
         '[auth] После логина отправь в DeepSeek короткое сообщение, например: ok',
+=======
+        '\n[auth] Chrome opened. Log in to DeepSeek in THIS separate window.',
+    );
+    console.log(
+        '[auth] After login, send a short message to DeepSeek, e.g.: ok',
+>>>>>>> Stashed changes
     );
     await ask(
         '[auth] Когда залогинился и отправил тестовое сообщение — нажми ENTER здесь: ',

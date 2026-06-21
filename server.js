@@ -392,30 +392,50 @@ async function solvePOW(challenge, config = DS_CONFIG) {
 }
 
 const MODEL_CONFIGS = {
+<<<<<<< Updated upstream
     // DeepSeek Web real model_type: default / UI name: "Быстрый".
     // Public model family: DeepSeek-V3.2-Exp chat mode (fast, no visible reasoning).
     'deepseek-chat': {
         model_type: 'default', thinking_enabled: false, search_enabled: false,
         real_model: 'DeepSeek-V4-Flash non-thinking (DeepSeek Web “Быстрый” / default)',
+=======
+    // DeepSeek Web real model_type: default / UI name: "Fast".
+    // Public model family: DeepSeek-V3.2-Exp chat mode (fast, no visible reasoning).
+    'deepseek-chat': {
+        model_type: 'default', thinking_enabled: false, search_enabled: false,
+        real_model: 'DeepSeek-V4-Flash non-thinking (DeepSeek Web “Fast” / default)',
+>>>>>>> Stashed changes
         capabilities: { reasoning: false, web_search: false, files: true },
         supported: true,
     },
     'deepseek-v3': {
         model_type: 'default', thinking_enabled: false, search_enabled: false,
+<<<<<<< Updated upstream
         real_model: 'DeepSeek-V4-Flash non-thinking (DeepSeek Web “Быстрый” / default)',
+=======
+        real_model: 'DeepSeek-V4-Flash non-thinking (DeepSeek Web “Fast” / default)',
+>>>>>>> Stashed changes
         capabilities: { reasoning: false, web_search: false, files: true },
         supported: true,
     },
     'deepseek-default': {
         model_type: 'default', thinking_enabled: false, search_enabled: false,
+<<<<<<< Updated upstream
         real_model: 'DeepSeek-V4-Flash non-thinking (DeepSeek Web “Быстрый” / default)',
+=======
+        real_model: 'DeepSeek-V4-Flash non-thinking (DeepSeek Web “Fast” / default)',
+>>>>>>> Stashed changes
         capabilities: { reasoning: false, web_search: false, files: true },
         supported: true,
     },
     // Same DeepSeek Web default model, but with thinking_enabled=true. UI exposes it as thinking/reasoning mode.
     'deepseek-reasoner': {
         model_type: 'default', thinking_enabled: true, search_enabled: false,
+<<<<<<< Updated upstream
         real_model: 'DeepSeek-V4-Flash thinking mode (DeepSeek Web “Быстрый” + thinking_enabled)',
+=======
+        real_model: 'DeepSeek-V4-Flash thinking mode (DeepSeek Web “Fast” + thinking_enabled)',
+>>>>>>> Stashed changes
         capabilities: { reasoning: true, web_search: false, files: true },
         supported: true,
     },
@@ -1831,12 +1851,21 @@ async function showStartupMenu() {
         printStatus();
         console.log('\n=== Меню ===');
         console.log(`ForgetMeAI: ${FORGETMEAI_WATERMARK}`);
+<<<<<<< Updated upstream
         console.log('1 - Авторизоваться / обновить DeepSeek login');
         console.log('2 - Импортировать auth-файл / cookies');
         console.log('3 - Показать модели и статусы');
         console.log('4 - Запустить прокси (по умолчанию)');
         console.log('5 - Выход');
         let choice = await prompt('Ваш выбор (Enter = 4): ');
+=======
+        console.log('1 - Authorize / update DeepSeek login');
+        console.log('2 - Import auth file / cookies');
+        console.log('3 - Show models and statuses');
+        console.log('4 - Start proxy (default)');
+        console.log('5 - Exit');
+        let choice = await prompt('Your choice (Enter = 4): ');
+>>>>>>> Stashed changes
         if (!choice) choice = '4';
         if (choice === '1') {
             await runAuthScript();
