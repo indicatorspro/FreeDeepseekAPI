@@ -74,16 +74,16 @@ Usage:
   DEEPSEEK_TOKEN="<DeepSeek token>" npm run auth:import -- --input ./cookies.json
 
 Options:
-   --input, -i   Source JSON: ready deepseek-auth.json or browser cookie export
+  --input, -i   Source JSON: ready deepseek-auth.json or browser cookie export
   --output, -o  Target auth path (default: ${DEFAULT_OUT})
 
 Security:
-  For cookies.json, pass the token via DEEPSEEK_TOKEN instead of a CLI argument
-  to avoid leaking it in shell history/process lists.
+  For cookies.json, pass token via DEEPSEEK_TOKEN, not via CLI argument,
+  to avoid exposing it in shell history/process list.
 
 VPS flow:
-  1) On your local PC: npm run auth
-  2) Copy deepseek-auth.json to the VPS
+  1) On your home PC: npm run auth
+  2) Copy deepseek-auth.json to VPS
   3) On VPS: npm run auth:import -- --input ./deepseek-auth.json
   4) Start: NON_INTERACTIVE=1 npm start`);
 }
@@ -103,7 +103,7 @@ async function main(argv = process.argv.slice(2)) {
   const errors = validateAuth(auth);
   if (errors.length) {
     console.error(`[auth:import] Invalid auth import: ${errors.join(', ')}`);
-    console.error('[auth:import] When importing browser cookies, pass the token via DEEPSEEK_TOKEN=...');
+    console.error('[auth:import] If importing browser cookies, pass token via DEEPSEEK_TOKEN=...');
     return 2;
   }
   secureWriteJson(outputPath, auth);

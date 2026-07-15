@@ -1,45 +1,97 @@
-// DeepSeek → FreeDeepseekAPI — intercepts headers of real request.
-// token (Authorization: Bearer), cookie (all), hif (x-hif-*) are taken from
-// actual request to chat.deepseek.com/api/... — same as HAR/cURL.
+// DeepSeek Auth Exporter — Background Service Worker
+// Reads cookies from Chrome, forwards content-script localStorage data.
 
-const WASM_DEFAULT = 'https://fe-static.deepseek.com/chat/static/sha3_wasm_bg.7b9ca65ddd.wasm';
-const KEY = 'deepseek_capture';
+const STORAGE_KEY = 'deepseek_auth';
 
-// extraHeaders needed for Chrome to access Cookie/Authorization; Firefox provides them without it.
-const opts = ['requestHeaders'];
-try {
-    if (chrome.webRequest.OnBeforeSendHeadersOptions &&
-        chrome.webRequest.OnBeforeSendHeadersOptions.EXTRA_HEADERS) {
-        opts.push('extraHeaders');
-    }
-} catch (e) { /* Firefox: option doesn't exist — this is normal */ }
+// Read all needed cookies from chat.deepseek.com
+async function readCookies() {
+  const needed = ['token', 'ds_session_id', 'smidV2'];
+  const results = {};
+  for (const name of needed) {
+    const cookie = await new Promise((resolve) =>
+      chrome.cookies.get({ url: 'https://chat.deepseek.com', name }, resolve)
+    );
+    results[name] = cookie ? cookie.value : '';
+  }
 
-chrome.webRequest.onBeforeSendHeaders.addListener(
-    (details) => {
-        const h = {};
-        for (const x of (details.requestHeaders || [])) h[x.name.toLowerCase()] = x.value;
-        const auth = h['authorization'] || '';
-        const token = /^bearer\s+\S/i.test(auth) ? auth.replace(/^bearer\s+/i, '').trim() : '';
-        const cookie = h['cookie'] || '';
-        if (token && cookie) {
-            const cap = {
-                token,
-                cookie,
-                hif_dliq: h['x-hif-dliq'] || '',
-                hif_leim: h['x-hif-leim'] || '',
-                wasmUrl: WASM_DEFAULT,
-                _t: Date.now(),
-            };
-            chrome.storage.local.set({ [KEY]: cap });
+  // Build cookie header string
+  const parts = [];
+  if (results.ds_session_id) parts.push(`ds_session_id=${results.ds_session_id}`);
+  if (results.smidV2) parts.push(`smidV2=${results.smidV2}`);
+  results.cookie = parts.join('; ');
+
+  return results;
+}
+
+// Read localStorage values via content script injection
+async function readLocalStorage(tabId) {
+  const keys = ['hif_dliq', 'hif_leim'];
+  try {
+    const results = await new Promise((resolve, reject) => {
+      chrome.tabs.sendMessage(
+        tabId,
+        { action: 'readLocalStorage', keys },
+        (response) => {
+          if (chrome.runtime.lastError) reject(chrome.runtime.lastError.message);
+          else resolve(response.data || {});
         }
-    },
-    { urls: ['https://chat.deepseek.com/api/*'] },
-    opts
-);
+      );
+    });
+    return results;
+  } catch (e) {
+    return {};
+  }
+}
 
-chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
-    if (req.action === 'get') {
-        chrome.storage.local.get(KEY, (r) => sendResponse({ success: true, cap: r[KEY] || null }));
-        return true; // async
-    }
+// Find an open DeepSeek tab
+function findDeepSeekTab() {
+  return new Promise((resolve) => {
+    chrome.tabs.query(
+      { url: 'https://chat.deepseek.com/*' },
+      (tabs) => resolve(tabs.length > 0 ? tabs[0] : null)
+    );
+  });
+}
+
+async function collectAndStore(tabId) {
+  const cookies = await readCookies();
+  let ls = {};
+  if (tabId) ls = await readLocalStorage(tabId);
+
+  const merged = {
+    token: cookies.token || '',
+    ds_session_id: cookies.ds_session_id || '',
+    smidV2: cookies.smidV2 || '',
+    cookie: cookies.cookie || '',
+    hif_dliq: ls.hif_dliq || '',
+    hif_leim: ls.hif_leim || '',
+    _lastUpdated: new Date().toISOString(),
+  };
+
+  await new Promise((resolve) =>
+    chrome.storage.local.set({ [STORAGE_KEY]: merged }, resolve)
+  );
+  return merged;
+}
+
+// Message handler — popup requests
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'collect') {
+    findDeepSeekTab().then(async (tab) => {
+      if (!tab) {
+        sendResponse({ success: false, error: 'No DeepSeek tab open' });
+        return;
+      }
+      const auth = await collectAndStore(tab.id);
+      sendResponse({ success: true, auth });
+    });
+    return true; // keep channel open for async
+  }
+
+  if (request.action === 'export') {
+    chrome.storage.local.get(STORAGE_KEY, (result) => {
+      sendResponse({ success: true, auth: result[STORAGE_KEY] || {} });
+    });
+    return true;
+  }
 });

@@ -38,6 +38,7 @@ ForgetMeAI: https://t.me/forgetmeai
 - [Windows launch](#-windows-launch)
 - [Linux / Chromium launch](#-linux--chromium-launch)
 - [VPS / headless launch](#-vps--headless-launch)
+- [Rootless Podman](#-rootless-podman)
 - [Diagnostics / doctor](#-diagnostics--doctor)
 - [Session reuse and chat reset](#-session-reuse-and-chat-reset)
 - [Multi-account pool](#-multi-account-pool)
@@ -54,9 +55,8 @@ ForgetMeAI: https://t.me/forgetmeai
 - [Models](#-models)
 - [Endpoints](#-endpoints)
 - [Open WebUI](#-open-webui)
-- [Chrome Extension](#-chrome-extension)
-- [Dashboard Web](#-dashboard-web)
 - [Update login](#-update-login)
+- [Tests](#-tests)
 - [Project status](#-project-status)
 
 ---
@@ -83,8 +83,6 @@ ForgetMeAI: https://t.me/forgetmeai
 - **Agent sessions:** separate DeepSeek session per `user` / agent id
 - **Session recovery:** auto-reset of stale chains/sessions
 - **Zero dependencies:** Node.js 18+, no npm dependencies
-- **Chrome Extension:** Browser extension for session management
-- **Dashboard Web:** Administrative web interface with real-time metrics
 
 ---
 
@@ -124,6 +122,21 @@ By default the server listens on:
 ```text
 http://localhost:9655
 ```
+
+By default the proxy is only accessible from the same machine. To allow
+network access, explicitly set the bind address and a proxy API key:
+
+```bash
+HOST=0.0.0.0 PROXY_API_KEY='replace-with-a-long-random-value' npm start
+```
+
+Then pass the key as `Authorization: Bearer <key>`. Without `PROXY_API_KEY`
+non-health endpoints remain unauthenticated, so do not expose such an
+instance to the network.
+
+Browser requests are allowed from loopback origins. If the UI is opened on a
+different address, add its exact origin via comma, e.g.
+`PROXY_CORS_ORIGINS=https://ui.example.com,http://192.168.1.20:3000`.
 
 ---
 
@@ -206,6 +219,89 @@ DEEPSEEK_TOKEN="<token>" npm run auth:import -- --input ./cookies.json
 
 ---
 
+## 🦭 Rootless Podman
+
+The container is intended for non-interactive proxy launch only. Perform
+browser-based authorization on the host with `npm run auth`: auth scripts and
+`deepseek-auth.json` are not copied into the image.
+
+Run Podman as a regular user, without `sudo`.
+
+1. Build the local image:
+
+```bash
+podman build --tag localhost/free-deepseek-api:local --file Containerfile .
+```
+
+2. Pass DeepSeek auth and a separate proxy API key via Podman secrets:
+
+```bash
+podman secret create --replace free-deepseek-auth ./deepseek-auth.json
+
+printf 'Proxy API key: '
+IFS= read -r -s PROXY_API_KEY
+printf '\n'
+printf '%s' "$PROXY_API_KEY" |
+  podman secret create --replace free-deepseek-proxy-key -
+```
+
+Use a long random key. The value stays in the current shell's `PROXY_API_KEY`
+variable for API verification; it does not end up in the image or the Podman
+command line.
+
+3. Run the container with minimal privileges:
+
+```bash
+podman run --detach \
+  --name free-deepseek-api \
+  --publish 127.0.0.1:9655:9655 \
+  --secret free-deepseek-auth,target=deepseek-auth.json,uid=1000,gid=1000,mode=0400 \
+  --secret free-deepseek-proxy-key,target=proxy-api-key,uid=1000,gid=1000,mode=0400 \
+  --read-only \
+  --cap-drop=ALL \
+  --security-opt=no-new-privileges \
+  localhost/free-deepseek-api:local
+```
+
+Inside the container, `NON_INTERACTIVE=1`, `HOST=0.0.0.0`, and paths to both
+secrets are pre-configured. `REQUIRE_PROXY_API_KEY=1` prevents the container
+from starting if the key secret is missing or empty. On the host, the port is
+only published to `127.0.0.1`; do not remove this address without a separate
+network firewall/access policy.
+
+4. Verify liveness, account readiness, and the protected endpoint:
+
+```bash
+podman healthcheck run free-deepseek-api
+curl --fail http://127.0.0.1:9655/readyz
+curl --fail \
+  -H "Authorization: Bearer $PROXY_API_KEY" \
+  http://127.0.0.1:9655/v1/models
+```
+
+The built-in healthcheck verifies the local `/health` (whether the process is
+alive). `/readyz` additionally returns `503` if no DeepSeek auth account is
+currently ready to serve requests. Container diagnostics:
+
+```bash
+podman logs free-deepseek-api
+podman inspect --format '{{.State.Health.Status}}' free-deepseek-api
+```
+
+Stop and remove the container along with the saved Podman secrets:
+
+```bash
+podman stop free-deepseek-api
+podman rm free-deepseek-api
+podman secret rm free-deepseek-auth free-deepseek-proxy-key
+unset PROXY_API_KEY
+```
+
+When rotating auth or proxy key, replace the corresponding secret and recreate
+the container so that behavior does not depend on the Podman version.
+
+---
+
 ##  Diagnostics / doctor
 
 ```bash
@@ -234,6 +330,9 @@ FreeDeepseekAPI doesn't create a new DeepSeek chat on every HTTP request without
 - if session id already exists — proxy reuses it and continues chain via `parent_message_id`;
 - auto-reset happens on TTL, DeepSeek session error, or too long message chain;
 - local history is saved as short context so new DeepSeek session can continue the conversation.
+- long agent requests are trimmed before sending via `DEEPSEEK_MAX_PROMPT_CHARS` (default 80,000 characters): the beginning of the task, fresh tool results, and tool adapter are preserved;
+- if the client already sent multi-turn history, local recovery-history is not added a second time;
+- empty responses are retried up to `DEEPSEEK_MAX_RETRIES` times (default 2), with context shrinking on each retry.
 
 Explicitly set agent/session:
 
@@ -433,129 +532,134 @@ FreeDeepseekAPI accepts:
 Proxy asks DeepSeek to return strict JSON tool call, but also parses fallback formats:
 
 - `TOOL_CALL:`
-- fenced JSON
-- `<tool_call>...`
+- fenced JSON with an explicit `tool_call`, `tool_calls`, or `function_call` envelope
+- `<tool_call>...</tool_call>`
+- DeepSeek DSML (`<｜DSML｜tool_calls>...`) and web variant with `<｜｜DSML｜｜ Tool Calls>`
 
 ---
 
 ##  Models
 
-DeepSeek Web supports several model aliases. Use these in the `model` field:
+`GET /v1/models` returns only aliases that are currently verified and working through this proxy.
 
-- `deepseek-chat` — standard chat model
-- `deepseek-reasoner` — reasoning model with chain-of-thought
-- `deepseek-chat-search` — chat with web search enabled
+### Working aliases
 
-For a full list, run:
+| Alias | Web mode | Reasoning | Web search | Notes |
+| --- | --- | --- | --- | --- |
+| `deepseek-chat` | `Fast` / `default` | no | no | basic chat |
+| `deepseek-v3` | `Fast` / `default` | no | no | compatibility alias |
+| `deepseek-default` | `Fast` / `default` | no | no | compatibility alias |
+| `deepseek-reasoner` | `Fast` / `default` | yes | no | `thinking_enabled=true` |
+| `deepseek-r1` | `Fast` / `default` | yes | no | R1-compatible alias |
+| `deepseek-chat-search` | `Fast` / `default` | no | yes | web search |
+| `deepseek-default-search` | `Fast` / `default` | no | yes | web search alias |
+| `deepseek-reasoner-search` | `Fast` / `default` | yes | yes | reasoning + search |
+| `deepseek-r1-search` | `Fast` / `default` | yes | yes | R1-compatible + search |
+| `deepseek-expert` | `Expert` / `expert` | no | no | Expert mode |
+| `deepseek-v4-pro` | `Expert` / `expert` | yes | no | Expert + reasoning |
+
+Full mapping:
 
 ```bash
-curl http://localhost:9655/v1/models
+curl http://localhost:9655/v1/model-capabilities
 ```
+
+According to the official DeepSeek V4 Preview page, `deepseek-chat` and `deepseek-reasoner` are currently routed to `deepseek-v4-flash` non-thinking/thinking. In `chat.deepseek.com` direct stream the exact checkpoint name is not returned (`model: ""`), so the proxy records both the web mode (`default` / `Fast`) and the current official routing (`DeepSeek-V4-Flash`).
+
+Current DeepSeek Web remote config shows these web modes:
+
+- `default` / UI `Fast` — works; supports `thinking_enabled` and `search_enabled`.
+- `expert` / UI `Expert` — works via the current web contract (`x-client-version=2.0.0`) and supports `thinking_enabled`. In `/v1/models`, `deepseek-expert` is served without reasoning and `deepseek-v4-pro` as Expert + reasoning.
+- `vision` / UI `Recognition` — visible in remote config, but currently the direct Web API returns `backend_err_by_model` (`Vision is temporarily unavailable`). Therefore `deepseek-vision` is hidden from `/v1/models`.
+
+Search for Expert is unavailable per remote config, so `deepseek-expert-search` remains unsupported.
 
 ---
 
 ##  Endpoints
 
-- `GET /` — server status
-- `GET /health` — detailed health check
-- `GET /v1/models` — list available models
-- `GET /v1/model-capabilities` — model capabilities
-- `POST /v1/chat/completions` — OpenAI-compatible chat completions
-- `POST /v1/messages` — Anthropic-compatible messages API
-- `POST /v1/responses` — OpenAI Responses API
-- `GET /v1/sessions` — list active sessions
-- `POST /reset-session` — reset a session (query param `agent`)
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/` or `/health` | proxy status |
+| `GET` | `/v1/models` | list of working OpenAI-compatible aliases |
+| `GET` | `/v1/model-capabilities` | full alias mapping, real model, capabilities |
+| `POST` | `/v1/chat/completions` | OpenAI-compatible Chat Completions |
+| `POST` | `/v1/messages` | Anthropic Messages API shim |
+| `POST` | `/v1/responses` | OpenAI Responses API shim |
+| `GET` | `/v1/sessions` | active local agent sessions |
+| `POST` | `/reset-session?agent=<id>` | reset a single session |
+| `POST` | `/reset-session?agent=all` | reset all sessions |
 
 ---
 
 ##  Open WebUI
 
-To connect Open WebUI to FreeDeepseekAPI:
+Base URL for Open WebUI in Docker:
 
-1. Start FreeDeepseekAPI: `npm start`
-2. In Open WebUI, go to Settings → Connections
-3. Set API URL to `http://localhost:9655`
-4. Use any dummy API key (e.g., `sk-dummy`)
-5. Select `deepseek-chat` or other models
-
----
-
-##  Chrome Extension
-
-A browser extension is available for session management.
-
-### Installation
-
-1. Open `chrome://extensions/`
-2. Enable "Developer mode"
-3. Click "Load unpacked"
-4. Select the `chrome-extension/` folder
-
-### Features
-
-- Real-time server status
-- Session refresh and auto-capture
-- Popup interface for quick actions
-- Cookie-based session monitoring
-- Request interception for DeepSeek API
-
-### Usage
-
-Click the extension icon to view:
-
-- Server connection status (`http://localhost:9655`)
-- Active session ID
-- Number of configured accounts
-- Last activity timestamp
-
----
-
-##  Dashboard Web
-
-A web dashboard provides advanced administration.
-
-### Access
-
-```
-http://localhost:9655/dashboard
+```text
+http://host.docker.internal:9655/v1
 ```
 
-### Features
+For local launch without Docker:
 
-- Active session monitoring
-- API usage statistics
-- Account management
-- Real-time metrics
-
-### Development
-
-```bash
-cd dashboard
-npm install
-npm start  # Development server
-npm run build  # Production build
+```text
+http://localhost:9655/v1
 ```
+
+If `PROXY_API_KEY` is not set, any API key can be used. If the key is set,
+the client must send exactly that value — proxy verifies the bearer token
+before granting access to models, sessions, and completions.
 
 ---
 
 ##  Update login
 
-If your DeepSeek session expires, refresh it:
-
 ```bash
 npm run auth
+npm start
 ```
 
-Or use the import command with fresh credentials:
+If DeepSeek starts returning `401`, `403` or asks for a new PoW/session — re-run `npm run auth` to refresh the saved browser session.
+
+Local auth files must not be committed to GitHub:
+
+- `deepseek-auth.json`
+- `.chrome-profile-deepseek/`
+- `.env`
+
+They are already in `.gitignore`.
+
+---
+
+## 🧪 Tests
+
+Syntax check for the project:
 
 ```bash
-npm run auth:import -- --input ./new-auth.json
+npm test
+```
+
+Live smoke tests against a running local proxy:
+
+```bash
+BASE_URL=http://127.0.0.1:9655 MODEL=deepseek-chat npm run test:live
 ```
 
 ---
 
 ##  Project status
 
-This project is actively maintained. For updates and support, join the Telegram channel: [ForgetMeAI](https://t.me/forgetmeai).
+FreeDeepseekAPI is an experimental web-chat proxy for local use and integrations. It depends on the current DeepSeek Web Chat contract, so when DeepSeek makes changes, auth/session logic or model mapping may need updating.
 
-Contributions are welcome via pull requests.
+If something stops working:
+
+1. refresh login via `npm run auth`;
+2. check `/v1/model-capabilities`;
+3. retry the request on a fresh session;
+4. if the problem persists — DeepSeek likely changed the internal Web API.
+
+---
+
+<p align="center">
+  <strong>ForgetMeAI</strong> · <a href="https://t.me/forgetmeai">Telegram</a>
+</p>
