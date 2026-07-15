@@ -551,7 +551,12 @@ function cacheAgentTools(agentId, tools) {
         const name = tool?.function?.name;
         if (name) merged.set(name, tool);
     }
-    agentToolCache.set(agentId, Array.from(merged.values()));
+    const finalTools = Array.from(merged.values());
+    agentToolCache.set(agentId, finalTools);
+    
+    // Log tool names for debugging
+    const toolNames = finalTools.map(t => t?.function?.name).filter(Boolean);
+    console.log(`[DS-API] ${agentId} tools cached (${toolNames.length}): ${toolNames.join(', ')}`);
 }
 
 function getCachedAgentTools(agentId) {
