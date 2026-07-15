@@ -159,7 +159,7 @@ let accountRoundRobin = 0;
 let inFlight = 0;  // concurrent in-flight completions (backpressure cap)
 // Overall wall-clock budget for one inbound request (caps the retry/continuation
 // loops), max concurrent completions, and the empty-response retry cap.
-const REQUEST_DEADLINE_MS = Number(process.env.DEEPSEEK_REQUEST_DEADLINE_MS || 180000);
+const REQUEST_DEADLINE_MS = Number(process.env.DEEPSEEK_REQUEST_DEADLINE_MS || 300000);
 const MAX_CONCURRENT = Number(process.env.DEEPSEEK_MAX_CONCURRENT || 24);
 const configuredEmptyRetries = Number(process.env.DEEPSEEK_MAX_RETRIES);
 const MAX_EMPTY_RETRIES = Number.isFinite(configuredEmptyRetries)
@@ -169,7 +169,7 @@ const MIN_UPSTREAM_PROMPT_CHARS = 16000;
 const configuredPromptChars = Number(process.env.DEEPSEEK_MAX_PROMPT_CHARS);
 const MAX_UPSTREAM_PROMPT_CHARS = Number.isFinite(configuredPromptChars)
     ? Math.max(MIN_UPSTREAM_PROMPT_CHARS, Math.floor(configuredPromptChars))
-    : 200000;
+    : 100000;
 function buildBaseHeaders(config = DS_CONFIG) {
     return {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
@@ -2531,8 +2531,7 @@ const server = http.createServer(async (req, res) => {
                 .map(tool => tool.function.name));
             let toolCall = allowedToolNames.size > 0 ? parseToolCall(fullContent) : null;
             if (toolCall && !allowedToolNames.has(toolCall.name)) {
-                console.log(`${agentTag} Model requested unknown tool ${toolCall.name}; attempting format repair.`);
-                toolCall = null;
+                console.log(`${agentTag} Model requested unknown tool ${toolCall.name}; passing through to client.`);
             }
             
             // Retry once if legacy, XML, or DSML tool markup was truncated or
