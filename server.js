@@ -20,6 +20,35 @@ const { spawnSync } = require('child_process');
 const { solvePOW } = require('./lib/pow');
 const { parseAuthInput, finalizeAuth } = require('./lib/parseAuth');
 
+// Load .env file if present (zero-dependency dotenv replacement)
+// Only sets variables that are not already defined in the environment
+function loadEnvFile() {
+    const envPath = path.join(__dirname, '.env');
+    try {
+        if (!fs.existsSync(envPath)) return;
+        const content = fs.readFileSync(envPath, 'utf8');
+        for (const line of content.split('\n')) {
+            const trimmed = line.trim();
+            if (!trimmed || trimmed.startsWith('#')) continue;
+            const eqIdx = trimmed.indexOf('=');
+            if (eqIdx < 1) continue;
+            const key = trimmed.slice(0, eqIdx).trim();
+            let value = trimmed.slice(eqIdx + 1).trim();
+            // Remove quotes if present
+            if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+                value = value.slice(1, -1);
+            }
+            // Only set if not already in environment (env takes precedence)
+            if (!process.env[key]) {
+                process.env[key] = value;
+            }
+        }
+    } catch (e) {
+        // Silent fail — .env is optional
+    }
+}
+loadEnvFile();
+
 // Per-DeepSeek-request network timeout. Plain fetch() has NO default timeout, so a
 // stalled upstream would hang the inbound request (and pin the account) forever.
 // Increased to 180s for large prompts (DeepSeek can be slow with complex tasks)
