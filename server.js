@@ -484,6 +484,19 @@ function saveSessions() {
 }
 
 function loadSessions() {
+    // If CLEAR_SESSIONS_ON_START is set, delete sessions.json and start fresh
+    if (isTruthy(process.env.DEEPSEEK_CLEAR_SESSIONS_ON_START)) {
+        try {
+            if (fs.existsSync(SESSION_FILE)) {
+                fs.unlinkSync(SESSION_FILE);
+                console.log(`[DS-API] Cleared sessions on start (DEEPSEEK_CLEAR_SESSIONS_ON_START)`);
+            }
+        } catch (e) {
+            console.log(`[DS-API] Failed to clear sessions: ${e.message}`);
+        }
+        return;
+    }
+    
     try {
         if (fs.existsSync(SESSION_FILE)) {
             const data = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf8'));
