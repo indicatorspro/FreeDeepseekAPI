@@ -370,6 +370,15 @@ DEEPSEEK_CLEAR_SESSIONS_ON_START=1 npm start
 
 This deletes `sessions.json` on startup, so the model starts with no memory of previous conversations. Useful for development/testing when you want clean context each restart.
 
+Debug tool loading:
+
+```bash
+# Log all MCP tool names loaded per agent (for debugging)
+DEEPSEEK_LOG_TOOLS=1 npm start
+```
+
+Shows which tools are being sent by the client and cached by the server. Disabled by default.
+
 Why chats still appear in DeepSeek Web: proxy works through internal Web Chat API, and DeepSeek stores real chat sessions on their side. This is normal for web-proxy. The task of session reuse is not to spawn new chats unnecessarily and to reset cleanly only when the chain has gone stale/broken.
 
 ---
