@@ -1853,13 +1853,14 @@ function isTimeoutError(error) {
 }
 
 function formatMessages(messages, tools) {
-    let systemPrompt = '';
+    let rawSystemPrompt = '';
     for (const msg of messages) {
         if (msg.role === 'system' && msg.content) {
-            systemPrompt += normalizeMessageContent(msg.content) + '\n';
+            rawSystemPrompt += normalizeMessageContent(msg.content) + '\n';
         }
     }
-    systemPrompt += formatToolDefinitions(tools);
+    const toolDefs = formatToolDefinitions(tools);
+    const systemPrompt = rawSystemPrompt + toolDefs;
 
     // Build full conversation history for DeepSeek's context
     let conversation = '';
@@ -1885,6 +1886,11 @@ function formatMessages(messages, tools) {
             conversation += `[Tool Result]\n${toolContent}\n\n`;
         }
     }
+
+    // Diagnostic: log prompt breakdown
+    const toolCount = (tools || []).length;
+    console.log(`[PROMPT-DIAG] system=${rawSystemPrompt.length} chars, tools=${toolDefs.length} chars (${toolCount} defs), conversation=${conversation.length} chars, total=${systemPrompt.length + conversation.length} chars`);
+
     // The last user message + full conversation context
     return { prompt: conversation.trim(), systemPrompt: systemPrompt.trim() };
 }
@@ -2243,7 +2249,14 @@ const server = http.createServer(async (req, res) => {
             let promptCompacted = promptBuild.compacted;
             if (promptBuild.compacted) {
                 markContextCompacted(res);
+                // Diagnostic: show what survived compaction
+                const systemSurvived = fullPrompt.substring(0, Math.min(fullPrompt.length, systemPrompt.length));
+                const hasToolDefs = systemSurvived.includes('--- TOOL REQUEST SYSTEM ---');
+                const toolDefsStart = systemSurvived.indexOf('--- TOOL REQUEST SYSTEM ---');
+                const toolDefsEnd = systemSurvived.indexOf('--- END TOOL REQUEST SYSTEM ---');
+                const toolDefsSize = toolDefsStart >= 0 && toolDefsEnd >= 0 ? toolDefsEnd - toolDefsStart + 35 : 0;
                 console.log(`${agentTag} Compacted upstream prompt ${promptBuild.originalChars} -> ${promptBuild.promptChars} chars${promptBuild.historyDropped ? ' (recovery history dropped)' : ''}`);
+                console.log(`${agentTag} [PROMPT-DIAG] tools_in_prompt=${hasToolDefs}, tool_defs_size=${toolDefsSize} chars, system_survived=${systemSurvived.length} chars`);
             }
 
             const startTime = Date.now();
