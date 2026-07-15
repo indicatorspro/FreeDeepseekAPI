@@ -596,9 +596,11 @@ function cacheAgentTools(agentId, tools) {
     const finalTools = Array.from(merged.values());
     agentToolCache.set(agentId, finalTools);
     
-    // Log tool names for debugging
-    const toolNames = finalTools.map(t => t?.function?.name).filter(Boolean);
-    console.log(`[DS-API] ${agentId} tools cached (${toolNames.length}): ${toolNames.join(', ')}`);
+    // Log tool names for debugging (enable with DEEPSEEK_LOG_TOOLS=1)
+    if (isTruthy(process.env.DEEPSEEK_LOG_TOOLS)) {
+        const toolNames = finalTools.map(t => t?.function?.name).filter(Boolean);
+        console.log(`[DS-API] ${agentId} tools cached (${toolNames.length}): ${toolNames.join(', ')}`);
+    }
 }
 
 function getCachedAgentTools(agentId) {
