@@ -869,17 +869,21 @@ function formatToolDefinitions(tools) {
     }, 0);
     const compactSchemas = rawSchemaChars > Math.floor(MAX_UPSTREAM_PROMPT_CHARS * 0.3) || effectiveTools.length > 30;
     let text = '\n\n--- TOOL REQUEST SYSTEM ---\n';
-    text += 'CRITICAL: You are an AI that ONLY REASONS and REQUESTS tool executions. You do NOT run any commands yourself.\n';
-    text += 'When you need to execute a command or perform an action, you MUST output EXACTLY ONE of these formats and NOTHING ELSE:\n\n';
+    text += 'You are an AI assistant that can use tools to help the user. When the user asks you to do something that requires a tool, output a tool call.\n';
+    text += 'When you need to execute a command or perform an action, output EXACTLY ONE of these formats and NOTHING ELSE:\n\n';
     text += 'Format 1 (preferred — output ONLY this JSON, no explanation, no code blocks):\n';
     text += '{"tool_call":{"name":"<function_name>","arguments":{...}}}\n\n';
     text += 'Format 2 (alternative):\n';
     text += 'TOOL_CALL: <function_name>\narguments: <JSON arguments>\n\n';
-    text += 'NEVER output bash commands, code blocks, markdown explanations, or anything else.\n';
+    text += 'IMPORTANT: Choose the RIGHT tool for the task:\n';
+    text += '- Use "terminal" to run shell commands (ls, cat, grep, etc)\n';
+    text += '- Use "read_file" to read a file\n';
+    text += '- Use "edit_file" to modify a file\n';
+    text += '- Use "execute_code" ONLY for code that needs to be executed in a sandbox\n';
     text += 'NEVER wrap the tool call in ```json``` code fences — output the raw JSON directly.\n';
     text += 'NEVER explain what you are about to do — just output the tool call.\n';
     text += 'NEVER simulate or fabricate command output — wait for the actual result from the tool.\n';
-    text += 'The tool runs on the local server, NOT on DeepSeek. After execution, the result will be sent back to you.\n\n';
+    text += 'After receiving a tool result, analyze it and respond to the user with a clear answer.\n\n';
     text += `Available functions (${effectiveTools.length}${truncated ? ` of ${tools.length} — truncated to save context` : ''}):\n`;
     for (const tool of effectiveTools) {
         if (tool.type === 'function' && tool.function) {
