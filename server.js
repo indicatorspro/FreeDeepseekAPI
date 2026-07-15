@@ -459,6 +459,46 @@ function createSession() {
     };
 }
 
+// Session persistence — save/load sessions to disk
+const SESSION_FILE = path.join(__dirname, 'sessions.json');
+
+function saveSessions() {
+    try {
+        const data = {};
+        for (const [agentId, session] of sessions) {
+            // Only save sessions with history (skip empty ones)
+            if (session.history && session.history.length > 0) {
+                data[agentId] = {
+                    history: session.history.slice(-20), // Keep last 20 exchanges
+                    accountId: session.accountId,
+                    lastActivityAt: session.lastActivityAt,
+                };
+            }
+        }
+        fs.writeFileSync(SESSION_FILE, JSON.stringify(data, null, 2));
+    } catch (e) {
+        console.log(`[DS-API] Failed to save sessions: ${e.message}`);
+    }
+}
+
+function loadSessions() {
+    try {
+        if (fs.existsSync(SESSION_FILE)) {
+            const data = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf8'));
+            for (const [agentId, saved] of Object.entries(data)) {
+                const session = createSession();
+                session.history = saved.history || [];
+                session.accountId = saved.accountId;
+                session.lastActivityAt = saved.lastActivityAt || Date.now();
+                sessions.set(agentId, session);
+            }
+            console.log(`[DS-API] Loaded ${Object.keys(data).length} session(s) from disk`);
+        }
+    } catch (e) {
+        console.log(`[DS-API] Failed to load sessions: ${e.message}`);
+    }
+}
+
 function resetRemoteSession(session) {
     const failed = {
         failedSessionId: session.id,
@@ -497,9 +537,19 @@ function getOrCreateAgentSession(agentId) {
 const agentToolCache = new Map();
 
 function cacheAgentTools(agentId, tools) {
-    if (tools && tools.length > 0) {
-        agentToolCache.set(agentId, tools);
+    if (!tools || tools.length === 0) return;
+    const existing = agentToolCache.get(agentId) || [];
+    // Merge new tools with existing ones (by function name)
+    const merged = new Map();
+    for (const tool of existing) {
+        const name = tool?.function?.name;
+        if (name) merged.set(name, tool);
     }
+    for (const tool of tools) {
+        const name = tool?.function?.name;
+        if (name) merged.set(name, tool);
+    }
+    agentToolCache.set(agentId, Array.from(merged.values()));
 }
 
 function getCachedAgentTools(agentId) {
@@ -1008,8 +1058,25 @@ function coerceToolCallObject(obj, { allowBare = false } = {}) {
     );
 }
 
+function repairJson(json) {
+    let fixed = json;
+    // Remove trailing commas before } or ]
+    fixed = fixed.replace(/,\s*([}\]])/g, '$1');
+    // Add missing closing braces/brackets
+    const opens = (fixed.match(/{/g) || []).length;
+    const closes = (fixed.match(/}/g) || []).length;
+    for (let i = 0; i < opens - closes; i++) fixed += '}';
+    const opensBracket = (fixed.match(/\[/g) || []).length;
+    const closesBracket = (fixed.match(/]/g) || []).length;
+    for (let i = 0; i < opensBracket - closesBracket; i++) fixed += ']';
+    // Fix single quotes to double quotes (only for property keys and string values)
+    fixed = fixed.replace(/'/g, '"');
+    return fixed;
+}
+
 function parseJsonToolCandidate(raw, label = 'json', options = {}) {
     if (!raw) return null;
+    // Try direct parse first
     try {
         const parsed = JSON.parse(raw);
         const tc = coerceToolCallObject(parsed, options);
@@ -1018,7 +1085,18 @@ function parseJsonToolCandidate(raw, label = 'json', options = {}) {
             return tc;
         }
     } catch (e) {
-        console.log(`[parseToolCall] ${label} JSON.parse failed: ${e.message.substring(0, 100)}`);
+        // Try repair
+        try {
+            const repaired = repairJson(raw);
+            const parsed = JSON.parse(repaired);
+            const tc = coerceToolCallObject(parsed, options);
+            if (tc) {
+                console.log(`[parseToolCall] SUCCESS ${label} (repaired): ${tc.name} (args=${tc.arguments.length} chars)`);
+                return tc;
+            }
+        } catch (e2) {
+            console.log(`[parseToolCall] ${label} JSON.parse failed: ${e.message.substring(0, 100)}`);
+        }
     }
     return null;
 }
@@ -2601,6 +2679,8 @@ const server = http.createServer(async (req, res) => {
             }
 
             storeHistory(agentId, prompt, fullContent, toolCall);
+            // Persist session to disk (async, non-blocking)
+            setImmediate(saveSessions);
 
             const openaiResponse = toolCall
                 ? buildToolCallResponse(toolCall, requestedModel, clientPromptText, reasoningContent)
@@ -2720,8 +2800,12 @@ async function main() {
         else console.error('[DS-API] server error:', err);
         process.exit(1);
     });
+    // Load persisted sessions from disk
+    loadSessions();
     // Periodically evict idle sessions (unref'd so it never keeps the process alive).
     setInterval(sweepIdleSessions, 10 * 60 * 1000).unref();
+    // Save sessions periodically (every 5 minutes)
+    setInterval(saveSessions, 5 * 60 * 1000).unref();
     server.listen(PORT, HOST, () => {
         console.log(`[DS-API] Server on http://${HOST}:${PORT} (multi-agent sessions enabled)`);
         console.log(`[DS-API] ${formatWatermark()}`);
