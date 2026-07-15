@@ -159,7 +159,7 @@ let accountRoundRobin = 0;
 let inFlight = 0;  // concurrent in-flight completions (backpressure cap)
 // Overall wall-clock budget for one inbound request (caps the retry/continuation
 // loops), max concurrent completions, and the empty-response retry cap.
-const REQUEST_DEADLINE_MS = Number(process.env.DEEPSEEK_REQUEST_DEADLINE_MS || 120000);
+const REQUEST_DEADLINE_MS = Number(process.env.DEEPSEEK_REQUEST_DEADLINE_MS || 180000);
 const MAX_CONCURRENT = Number(process.env.DEEPSEEK_MAX_CONCURRENT || 24);
 const configuredEmptyRetries = Number(process.env.DEEPSEEK_MAX_RETRIES);
 const MAX_EMPTY_RETRIES = Number.isFinite(configuredEmptyRetries)
@@ -169,7 +169,7 @@ const MIN_UPSTREAM_PROMPT_CHARS = 16000;
 const configuredPromptChars = Number(process.env.DEEPSEEK_MAX_PROMPT_CHARS);
 const MAX_UPSTREAM_PROMPT_CHARS = Number.isFinite(configuredPromptChars)
     ? Math.max(MIN_UPSTREAM_PROMPT_CHARS, Math.floor(configuredPromptChars))
-    : 80000;
+    : 500000;
 function buildBaseHeaders(config = DS_CONFIG) {
     return {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
@@ -490,6 +490,20 @@ function getOrCreateAgentSession(agentId) {
     const session = sessions.get(agentId);
     session.lastActivityAt = Date.now();
     return session;
+}
+
+// Tool definition cache per agent — clients like Hermes often only send tools
+// in the first request. Cache them so subsequent requests still have tools.
+const agentToolCache = new Map();
+
+function cacheAgentTools(agentId, tools) {
+    if (tools && tools.length > 0) {
+        agentToolCache.set(agentId, tools);
+    }
+}
+
+function getCachedAgentTools(agentId) {
+    return agentToolCache.get(agentId) || [];
 }
 
 // Evict idle sessions so the Map (keyed by client IP / user id) can't grow without
@@ -846,11 +860,14 @@ function compactToolSchema(value) {
 
 function formatToolDefinitions(tools) {
     if (!tools || tools.length === 0) return '';
-    const rawSchemaChars = tools.reduce((total, tool) => {
+    const MAX_TOOLS = 60;
+    const truncated = tools.length > MAX_TOOLS;
+    const effectiveTools = truncated ? tools.slice(0, MAX_TOOLS) : tools;
+    const rawSchemaChars = effectiveTools.reduce((total, tool) => {
         try { return total + JSON.stringify(tool?.function?.parameters || {}).length; }
         catch (e) { return total; }
     }, 0);
-    const compactSchemas = rawSchemaChars > Math.floor(MAX_UPSTREAM_PROMPT_CHARS * 0.4);
+    const compactSchemas = rawSchemaChars > Math.floor(MAX_UPSTREAM_PROMPT_CHARS * 0.3) || effectiveTools.length > 30;
     let text = '\n\n--- TOOL REQUEST SYSTEM ---\n';
     text += 'CRITICAL: You are an AI that ONLY REASONS and REQUESTS tool executions. You do NOT run any commands yourself.\n';
     text += 'When you need to execute a command or perform an action, you MUST output EXACTLY ONE of these formats and NOTHING ELSE:\n\n';
@@ -863,13 +880,13 @@ function formatToolDefinitions(tools) {
     text += 'NEVER explain what you are about to do — just output the tool call.\n';
     text += 'NEVER simulate or fabricate command output — wait for the actual result from the tool.\n';
     text += 'The tool runs on the local server, NOT on DeepSeek. After execution, the result will be sent back to you.\n\n';
-    text += 'Available functions:\n';
-    for (const tool of tools) {
+    text += `Available functions (${effectiveTools.length}${truncated ? ` of ${tools.length} — truncated to save context` : ''}):\n`;
+    for (const tool of effectiveTools) {
         if (tool.type === 'function' && tool.function) {
             const fn = tool.function;
             text += `\n## ${fn.name}\n`;
             const description = String(fn.description || '').replace(/\s+/g, ' ').trim();
-            text += `${description.length > 500 ? description.substring(0, 497) + '...' : description}\n`;
+            text += `${description.length > 200 ? description.substring(0, 197) + '...' : description}\n`;
             if (fn.parameters) {
                 text += `Parameters: ${JSON.stringify(compactSchemas ? compactToolSchema(fn.parameters) : fn.parameters)}\n`;
             }
@@ -1860,6 +1877,9 @@ function formatMessages(messages, tools) {
         }
     }
     const toolDefs = formatToolDefinitions(tools);
+    // Return tool definitions separately so they can be injected AFTER compaction.
+    // If tools are part of the system prompt that gets truncated, tool definitions
+    // get lost — the model then doesn't know which tools exist.
     const systemPrompt = rawSystemPrompt + toolDefs;
 
     // Build full conversation history for DeepSeek's context
@@ -1889,10 +1909,11 @@ function formatMessages(messages, tools) {
 
     // Diagnostic: log prompt breakdown
     const toolCount = (tools || []).length;
-    console.log(`[PROMPT-DIAG] system=${rawSystemPrompt.length} chars, tools=${toolDefs.length} chars (${toolCount} defs), conversation=${conversation.length} chars, total=${systemPrompt.length + conversation.length} chars`);
+    console.log(`[PROMPT-DIAG] system=${rawSystemPrompt.length} chars, tools=${toolDefs.length} chars (${toolCount} defs), conversation=${conversation.length} chars, total=${rawSystemPrompt.length + toolDefs.length + conversation.length} chars`);
 
-    // The last user message + full conversation context
-    return { prompt: conversation.trim(), systemPrompt: systemPrompt.trim() };
+    // Return tool definitions separately so they survive compaction.
+    // The caller will inject toolDefs after buildBoundedPrompt truncates the system+conversation.
+    return { prompt: conversation.trim(), systemPrompt: rawSystemPrompt.trim(), toolDefs: toolDefs.trim() };
 }
 
 function isLocal(req) {
@@ -2163,7 +2184,7 @@ const server = http.createServer(async (req, res) => {
             const rawParams = JSON.parse(body || '{}');
             const params = normalizeApiParams(rawParams, apiMode);
             const messages = params.messages || [];
-            const tools = params.tools || [];
+            let tools = params.tools || [];
             const stream = params.stream === true;
             const requestedModel = String(params.model || 'deepseek-chat').toLowerCase();
             if (!isKnownModel(requestedModel)) {
@@ -2185,6 +2206,18 @@ const server = http.createServer(async (req, res) => {
                 : ((remoteAddr === '127.0.0.1' || remoteAddr === '::1' || remoteAddr === '::ffff:127.0.0.1') ? 'dev-agent' : remoteAddr);
             const agentTag = `[${agentId}]`;
             activeAgentId = agentId;
+
+            // Cache tools from this request, or use cached tools if client sent none.
+            // Clients like Hermes often only send tool definitions in the first request.
+            if (tools.length > 0) {
+                cacheAgentTools(agentId, tools);
+            } else {
+                const cached = getCachedAgentTools(agentId);
+                if (cached.length > 0) {
+                    console.log(`${agentTag} Using ${cached.length} cached tool definitions (client sent none)`);
+                    tools = cached;
+                }
+            }
 
             // "/new" command: if the latest user message is exactly "/new" (whitespace-insensitive),
             // reset this agent's DeepSeek session/history instead of forwarding anything to DeepSeek.
@@ -2219,7 +2252,7 @@ const server = http.createServer(async (req, res) => {
                 return;
             }
 
-            const { prompt, systemPrompt } = formatMessages(messages, tools);
+            const { prompt, systemPrompt, toolDefs } = formatMessages(messages, tools);
             // For usage accounting, count the CLIENT's original input — not the
             // proxy-expanded fullPrompt (system + injected tools + history) — so
             // prompt_tokens reflects what the caller actually sent.
@@ -2243,20 +2276,26 @@ const server = http.createServer(async (req, res) => {
                 : buildRecoveryHistoryPrefix(session.history);
             const historyPrefix = !session.id ? recoveryHistoryPrefix : '';
 
+            // Build prompt WITHOUT tool definitions — tools are injected AFTER
+            // compaction so they are never truncated or lost.
             const promptBuild = buildBoundedPrompt(systemPrompt, historyPrefix, prompt);
             const freshPromptBuild = buildBoundedPrompt(systemPrompt, recoveryHistoryPrefix, prompt);
             let fullPrompt = promptBuild.prompt;
             let promptCompacted = promptBuild.compacted;
+
+            // Inject tool definitions AFTER compaction — they always survive.
+            // If tools were part of the system prompt, compaction would truncate them.
+            if (toolDefs) {
+                fullPrompt = fullPrompt + '\n' + toolDefs;
+                if (freshPromptBuild.prompt) {
+                    freshPromptBuild.prompt = freshPromptBuild.prompt + '\n' + toolDefs;
+                }
+            }
+
             if (promptBuild.compacted) {
                 markContextCompacted(res);
-                // Diagnostic: show what survived compaction
-                const systemSurvived = fullPrompt.substring(0, Math.min(fullPrompt.length, systemPrompt.length));
-                const hasToolDefs = systemSurvived.includes('--- TOOL REQUEST SYSTEM ---');
-                const toolDefsStart = systemSurvived.indexOf('--- TOOL REQUEST SYSTEM ---');
-                const toolDefsEnd = systemSurvived.indexOf('--- END TOOL REQUEST SYSTEM ---');
-                const toolDefsSize = toolDefsStart >= 0 && toolDefsEnd >= 0 ? toolDefsEnd - toolDefsStart + 35 : 0;
                 console.log(`${agentTag} Compacted upstream prompt ${promptBuild.originalChars} -> ${promptBuild.promptChars} chars${promptBuild.historyDropped ? ' (recovery history dropped)' : ''}`);
-                console.log(`${agentTag} [PROMPT-DIAG] tools_in_prompt=${hasToolDefs}, tool_defs_size=${toolDefsSize} chars, system_survived=${systemSurvived.length} chars`);
+                console.log(`${agentTag} [PROMPT-DIAG] tools_injected=true, tool_defs_size=${toolDefs.length} chars (preserved after compaction)`);
             }
 
             const startTime = Date.now();
