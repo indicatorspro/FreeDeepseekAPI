@@ -22,7 +22,8 @@ const { parseAuthInput, finalizeAuth } = require('./lib/parseAuth');
 
 // Per-DeepSeek-request network timeout. Plain fetch() has NO default timeout, so a
 // stalled upstream would hang the inbound request (and pin the account) forever.
-const DS_FETCH_TIMEOUT_MS = Number(process.env.DEEPSEEK_FETCH_TIMEOUT_MS || 60000);
+// Increased to 180s for large prompts (DeepSeek can be slow with complex tasks)
+const DS_FETCH_TIMEOUT_MS = Number(process.env.DEEPSEEK_FETCH_TIMEOUT_MS || 180000);
 function dsFetch(url, options = {}, timeoutMs = DS_FETCH_TIMEOUT_MS) {
     return fetch(url, { ...options, signal: options.signal || AbortSignal.timeout(timeoutMs) });
 }
