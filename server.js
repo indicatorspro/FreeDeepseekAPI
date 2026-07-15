@@ -852,18 +852,17 @@ function formatToolDefinitions(tools) {
     }, 0);
     const compactSchemas = rawSchemaChars > Math.floor(MAX_UPSTREAM_PROMPT_CHARS * 0.4);
     let text = '\n\n--- TOOL REQUEST SYSTEM ---\n';
-    text += 'You are an AI that ONLY REASONS and REQUESTS tool executions. You do NOT run any commands yourself.\n';
-    text += 'When you need data from the local server, REQUEST exactly one tool call. Prefer strict JSON:\n';
+    text += 'CRITICAL: You are an AI that ONLY REASONS and REQUESTS tool executions. You do NOT run any commands yourself.\n';
+    text += 'When you need to execute a command or perform an action, you MUST output EXACTLY ONE of these formats and NOTHING ELSE:\n\n';
+    text += 'Format 1 (preferred — output ONLY this JSON, no explanation, no code blocks):\n';
     text += '{"tool_call":{"name":"<function_name>","arguments":{...}}}\n\n';
-    text += 'Legacy format is also accepted: TOOL_CALL: <function_name>\narguments: <JSON arguments>\n\n';
-    text += 'Your response will be sent to the local gateway, which executes the command and sends the output back in the next message.\n\n';
-    text += 'RULES:\n';
-    text += '1. You ONLY output the tool request — you never run anything yourself\n';
-    text += '2. Do NOT simulate, guess, or fabricate command output — wait for the actual result\n';
-    text += '3. The tool runs on ' + SERVER_HOST + ' (' + SERVER_PUBLIC_IP + '), the local server — NOT on DeepSeek\n';
-    text += '4. After the tool executes, the result will be sent to you as a new user/tool message\n';
-    text += '5. Never add explanation before or after the tool request when requesting a tool\n';
-    text += '6. Keep arguments compact. Do not include large file contents unless the tool schema requires it.\n\n';
+    text += 'Format 2 (alternative):\n';
+    text += 'TOOL_CALL: <function_name>\narguments: <JSON arguments>\n\n';
+    text += 'NEVER output bash commands, code blocks, markdown explanations, or anything else.\n';
+    text += 'NEVER wrap the tool call in ```json``` code fences — output the raw JSON directly.\n';
+    text += 'NEVER explain what you are about to do — just output the tool call.\n';
+    text += 'NEVER simulate or fabricate command output — wait for the actual result from the tool.\n';
+    text += 'The tool runs on the local server, NOT on DeepSeek. After execution, the result will be sent back to you.\n\n';
     text += 'Available functions:\n';
     for (const tool of tools) {
         if (tool.type === 'function' && tool.function) {
@@ -877,7 +876,7 @@ function formatToolDefinitions(tools) {
         }
     }
     text += '\n--- END TOOL REQUEST SYSTEM ---\n';
-    text += '\nREMEMBER: Request tools only with strict JSON or TOOL_CALL legacy format. Never simulate results.';
+    text += '\nREMEMBER: Output ONLY the tool call JSON. No text before or after. No code fences. No explanation.';
     return text;
 }
 
