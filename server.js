@@ -159,7 +159,8 @@ let accountRoundRobin = 0;
 let inFlight = 0;  // concurrent in-flight completions (backpressure cap)
 // Overall wall-clock budget for one inbound request (caps the retry/continuation
 // loops), max concurrent completions, and the empty-response retry cap.
-const REQUEST_DEADLINE_MS = Number(process.env.DEEPSEEK_REQUEST_DEADLINE_MS || 300000);
+// Increased to 600s for complex tasks (large files, multi-step operations)
+const REQUEST_DEADLINE_MS = Number(process.env.DEEPSEEK_REQUEST_DEADLINE_MS || 600000);
 const MAX_CONCURRENT = Number(process.env.DEEPSEEK_MAX_CONCURRENT || 24);
 const configuredEmptyRetries = Number(process.env.DEEPSEEK_MAX_RETRIES);
 const MAX_EMPTY_RETRIES = Number.isFinite(configuredEmptyRetries)
@@ -796,77 +797,103 @@ async function askDeepSeekStream(prompt, agentId, model = 'deepseek-default', fr
         salt: challenge.salt, answer: answer,
         signature: challenge.signature, target_path: '/api/v0/chat/completion'
     })).toString('base64');
-    const resp = await dsFetch('https://chat.deepseek.com/api/v0/chat/completion', {
-        method: 'POST',
-        headers: { ...dsHeaders, 'X-DS-PoW-Response': powB64 },
-        body: JSON.stringify({
-            chat_session_id: session.id,
-            parent_message_id: session.parentMessageId,
-            model_type: modelCfg.model_type,
-            prompt: effectivePrompt, ref_file_ids: [],
-            thinking_enabled: modelCfg.thinking_enabled, search_enabled: modelCfg.search_enabled,
-            action: null, preempt: false,
-        })
-    });
-
-    // If session expired, reset and retry once
-    if (resp.status !== 200) {
-        // Pass Retry-After so a 429 honors the server-requested cooldown (#16).
-        const retryAfter = resp.headers.get('retry-after');
-        markAccountFailure(account, resp.status, 'completion', retryAfter);
-        const errText = await resp.text();
-        console.log(`${agentTag} Session error (${resp.status}): ${errText.substring(0, 100)}`);
-        if (resp.status === 400 || resp.status === 404 || resp.status === 500) {
-            console.log(`${agentTag} Session ${session.id} expired. Creating new session...`);
-            resetRemoteSession(session);
-
-            const sr2 = await dsFetch('https://chat.deepseek.com/api/v0/chat_session/create', {
-                method: 'POST', headers: dsHeaders, body: '{}'
-            });
-            const { json: sessionData2, text: sessionText2 } = await readDeepSeekJsonResponse(sr2, 'session recreate', account);
-            const createdSessionId2 = sessionData2?.data?.biz_data?.chat_session?.id || sessionData2?.data?.biz_data?.id;
-            if (!sr2.ok || !createdSessionId2) {
-                throw new Error(`Could not recreate DeepSeek chat session (HTTP ${sr2.status}). Run npm run doctor, then npm run auth. First chars: ${String(sessionText2 || '').substring(0, 120)}`);
-            }
-            session.id = createdSessionId2;
-            session.accountId = account.id;
-            session.parentMessageId = null;
-            session.createdAt = Date.now();
-            console.log(`${agentTag} Created new session: ${session.id}`);
-
-            const newPowB64 = Buffer.from(JSON.stringify({
-                algorithm: challenge.algorithm, challenge: challenge.challenge,
-                salt: challenge.salt, answer: answer,
-                signature: challenge.signature, target_path: '/api/v0/chat/completion'
-            })).toString('base64');
-            const resp2 = await dsFetch('https://chat.deepseek.com/api/v0/chat/completion', {
-                method: 'POST',
-                headers: { ...dsHeaders, 'X-DS-PoW-Response': newPowB64 },
-                body: JSON.stringify({
-                    chat_session_id: session.id,
-                    parent_message_id: null,
-                    model_type: modelCfg.model_type,
-                    prompt: freshSessionPrompt, ref_file_ids: [],
-                    thinking_enabled: modelCfg.thinking_enabled, search_enabled: modelCfg.search_enabled,
-                    action: null, preempt: false,
-                })
-            });
-            if (!resp2.ok) {
-                const retryAfter2 = resp2.headers.get('retry-after');
-                markAccountFailure(account, resp2.status, 'completion after session recreate', retryAfter2);
-                const errText2 = await resp2.text();
-                throw createUpstreamHttpError(resp2.status, errText2, retryAfter2);
-            }
-            effectivePrompt = freshSessionPrompt;
-            return { resp: resp2, agentId, account, promptUsed: effectivePrompt, freshSessionReset: true };
+    
+    // Retry with exponential backoff for 502 errors (DeepSeek server overload)
+    const MAX_502_RETRIES = 3;
+    const BASE_502_DELAY_MS = 2000;
+    let last502Error = null;
+    
+    for (let retry502 = 0; retry502 <= MAX_502_RETRIES; retry502++) {
+        if (retry502 > 0) {
+            const delay = Math.min(BASE_502_DELAY_MS * Math.pow(2, retry502 - 1), 30000);
+            console.log(`${agentTag} 502 retry ${retry502}/${MAX_502_RETRIES}, waiting ${delay}ms...`);
+            await new Promise(r => setTimeout(r, delay));
         }
-        // The body was consumed for diagnostics, so returning this Response
-        // would hand a locked stream to readDeepSeekResponse. Surface a typed
-        // error instead and retain the real upstream status/Retry-After.
-        throw createUpstreamHttpError(resp.status, errText, retryAfter);
-    }
+        
+        const resp = await dsFetch('https://chat.deepseek.com/api/v0/chat/completion', {
+            method: 'POST',
+            headers: { ...dsHeaders, 'X-DS-PoW-Response': powB64 },
+            body: JSON.stringify({
+                chat_session_id: session.id,
+                parent_message_id: session.parentMessageId,
+                model_type: modelCfg.model_type,
+                prompt: effectivePrompt, ref_file_ids: [],
+                thinking_enabled: modelCfg.thinking_enabled, search_enabled: modelCfg.search_enabled,
+                action: null, preempt: false,
+            })
+        });
 
-    return { resp, agentId, account, promptUsed: effectivePrompt, freshSessionReset: recoveredFreshSession };
+        // If session expired, reset and retry once
+        if (resp.status !== 200) {
+            // Pass Retry-After so a 429 honors the server-requested cooldown (#16).
+            const retryAfter = resp.headers.get('retry-after');
+            markAccountFailure(account, resp.status, 'completion', retryAfter);
+            const errText = await resp.text();
+            console.log(`${agentTag} Session error (${resp.status}): ${errText.substring(0, 100)}`);
+            
+            // 502 = DeepSeek server overload — retry with backoff
+            if (resp.status === 502) {
+                last502Error = createUpstreamHttpError(resp.status, errText, retryAfter);
+                console.log(`${agentTag} 502 server overload, will retry if attempts remain...`);
+                continue; // retry loop
+            }
+            
+            if (resp.status === 400 || resp.status === 404 || resp.status === 500) {
+                console.log(`${agentTag} Session ${session.id} expired. Creating new session...`);
+                resetRemoteSession(session);
+
+                const sr2 = await dsFetch('https://chat.deepseek.com/api/v0/chat_session/create', {
+                    method: 'POST', headers: dsHeaders, body: '{}'
+                });
+                const { json: sessionData2, text: sessionText2 } = await readDeepSeekJsonResponse(sr2, 'session recreate', account);
+                const createdSessionId2 = sessionData2?.data?.biz_data?.chat_session?.id || sessionData2?.data?.biz_data?.id;
+                if (!sr2.ok || !createdSessionId2) {
+                    throw new Error(`Could not recreate DeepSeek chat session (HTTP ${sr2.status}). Run npm run doctor, then npm run auth. First chars: ${String(sessionText2 || '').substring(0, 120)}`);
+                }
+                session.id = createdSessionId2;
+                session.accountId = account.id;
+                session.parentMessageId = null;
+                session.createdAt = Date.now();
+                console.log(`${agentTag} Created new session: ${session.id}`);
+
+                const newPowB64 = Buffer.from(JSON.stringify({
+                    algorithm: challenge.algorithm, challenge: challenge.challenge,
+                    salt: challenge.salt, answer: answer,
+                    signature: challenge.signature, target_path: '/api/v0/chat/completion'
+                })).toString('base64');
+                const resp2 = await dsFetch('https://chat.deepseek.com/api/v0/chat/completion', {
+                    method: 'POST',
+                    headers: { ...dsHeaders, 'X-DS-PoW-Response': newPowB64 },
+                    body: JSON.stringify({
+                        chat_session_id: session.id,
+                        parent_message_id: null,
+                        model_type: modelCfg.model_type,
+                        prompt: freshSessionPrompt, ref_file_ids: [],
+                        thinking_enabled: modelCfg.thinking_enabled, search_enabled: modelCfg.search_enabled,
+                        action: null, preempt: false,
+                    })
+                });
+                if (!resp2.ok) {
+                    const retryAfter2 = resp2.headers.get('retry-after');
+                    markAccountFailure(account, resp2.status, 'completion after session recreate', retryAfter2);
+                    const errText2 = await resp2.text();
+                    throw createUpstreamHttpError(resp2.status, errText2, retryAfter2);
+                }
+                effectivePrompt = freshSessionPrompt;
+                return { resp: resp2, agentId, account, promptUsed: effectivePrompt, freshSessionReset: true };
+            }
+            // The body was consumed for diagnostics, so returning this Response
+            // would hand a locked stream to readDeepSeekResponse. Surface a typed
+            // error instead and retain the real upstream status/Retry-After.
+            throw createUpstreamHttpError(resp.status, errText, retryAfter);
+        }
+        
+        // Success — return the response
+        return { resp, agentId, account, promptUsed: effectivePrompt, freshSessionReset: recoveredFreshSession };
+    }
+    
+    // All 502 retries exhausted
+    throw last502Error || new Error('DeepSeek server overload: all 502 retries exhausted');
 }
 
 // === Tool Calling Support ===
